@@ -1,41 +1,45 @@
-import os, tables, strformat, base64, ospaths, strutils, parseopt, threadpool
+import os, strformat, base64, os, parseopt, threadpool
 
 
 const buildBranchName* = staticExec("git rev-parse --abbrev-ref HEAD") ## \
   ## `buildBranchName` branch zos is built from
 const buildCommit* = staticExec("git rev-parse HEAD")  ## \
   ## `buildCommit` commit zos is built from
-  
+
 # const latestTag* = staticExec("git describe --abbrev=0 --tags") ## \
 ## `latestTag` latest tag on this branch
 
-const versionString* = fmt"0.1.0 ({buildBranchName}/{buildCommit})"
+const versionString* = fmt"0.2.0 ({buildBranchName}/{buildCommit})"
 
 let assetsFileHeader = """
-import os, tables, strformat, base64, ospaths
+import tables, base64
 
 var assets = initTable[string, string]()
 
-proc getAsset*(path: string): string = 
+proc getAsset*(path: string): string =
   result = assets[path].decode()
 
 """
+
+proc tripQuote(str: string): string =
+  "\"\"\"" & str & "\"\"\""
+
 proc generateDirAssetsSimple(dir:string): string =
   var key, val, valString: string
 
   for path in expandTilde(dir).walkDirRec():
     key = path
     val = readFile(path).encode()
-    valString = " \"\"\"" & val & "\"\"\" "
-    result &= fmt"""assets.add("{path}", {valString})""" & "\n\n"
+    valString = tripQuote val
+    result &= fmt"""assets["{path}"] = {valString}""" & "\n\n"
 
 proc handleFile(path:string): string {.thread.} =
   var val, valString: string
   val = readFile(path).encode()
-  valString = " \"\"\"" & val & "\"\"\" "
-  result = fmt"""assets.add("{path}", {valString})""" & "\n\n"
+  valString = tripQuote val
+  result = fmt"""assets["{path}"] = {valString}""" & "\n\n"
 
-proc generateDirAssetsSpawn(dir: string): string = 
+proc generateDirAssetsSpawn(dir: string): string =
   var results = newSeq[FlowVar[string]]()
   for path in expandTilde(dir).walkDirRec():
     results.add(spawn handleFile(path))
@@ -58,10 +62,10 @@ proc createAssetsFile(dirs:seq[string], outputfile="assets.nim", fast=false, com
 
   for d in dirs:
     data &= generator(d)
-  
+
   writeFile(outputfile, data)
 
-proc writeHelp() = 
+proc writeHelp() =
     #-c | --compress     : compress
     echo fmt"""
 nimassets {versionString} (Bundle your assets into nim file)
@@ -76,20 +80,20 @@ proc writeVersion() =
     echo fmt"nimassets version {versionString}"
 
 proc cli*() =
-  var 
+  var
     compress, fast : bool = false
     dirs = newSeq[string]()
     output = "assets.nim"
-  
+
   if paramCount() == 0:
     writeHelp()
     quit(0)
-  
+
   for kind, key, val in getopt():
     case kind
     of cmdLongOption, cmdShortOption:
         case key
-        of "help", "h": 
+        of "help", "h":
             writeHelp()
             quit()
         of "version", "v":
@@ -98,11 +102,11 @@ proc cli*() =
         # of "compress", "c": compress= true
         of "fast", "f": fast = true
         of "dir", "d": dirs.add(val)
-        of "output", "o": output = val 
+        of "output", "o": output = val
         else:
           discard
     else:
-      discard 
+      discard
   for d in dirs:
     if not dirExists(d):
       echo fmt"[-] Directory doesnt exist {d}"
